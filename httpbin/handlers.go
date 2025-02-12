@@ -682,7 +682,7 @@ func generateRandomJSON(targetSize int) map[string]interface{} {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	data := make(map[string]interface{})
 
-	for len(data) < 10 || estimatedJSONSize(data) < targetSize-50 {
+	for estimatedJSONSize(data) < targetSize-50 {
 		key := fmt.Sprintf("key%d", rng.Intn(1000))
 		switch rng.Intn(3) {
 		case 0:
