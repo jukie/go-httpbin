@@ -158,6 +158,7 @@ func (h *HTTPBin) Handler() http.Handler {
 	mux.HandleFunc("/cookies/set", h.SetCookies)
 	mux.HandleFunc("/deflate", h.Deflate)
 	mux.HandleFunc("/delay/{duration}", h.Delay)
+	mux.HandleFunc("/delay-with-bytes/{duration}", h.DelayWithBytesJSON)
 	mux.HandleFunc("/deny", h.Deny)
 	mux.HandleFunc("/digest-auth/{qop}/{user}/{password}", h.DigestAuth)
 	mux.HandleFunc("/digest-auth/{qop}/{user}/{password}/{algorithm}", h.DigestAuth)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -618,6 +619,87 @@ func (h *HTTPBin) Delay(w http.ResponseWriter, r *http.Request) {
 		{"initial_delay", delay, "initial delay"},
 	}))
 	h.RequestWithBody(w, r)
+}
+
+// DelayWithBytesJSON waits for a given amount of time before responding with random JSON.
+// The delay may be specified as a golang-style duration or seconds in floating point.
+// The number of bytes is specified via the "bytes" query parameter.
+func (h *HTTPBin) DelayWithBytesJSON(w http.ResponseWriter, r *http.Request) {
+	// Parse delay duration
+	delay, err := parseBoundedDuration(r.PathValue("duration"), 0, h.MaxDuration)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid duration: %w", err))
+		return
+	}
+
+	// Parse number of bytes to generate
+	numBytes, err := strconv.Atoi(r.URL.Query().Get("bytes"))
+	if err != nil || numBytes < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid byte count: %w", err))
+		return
+	}
+
+	// Cap the maximum bytes to prevent excessive response size
+	if numBytes > 100*1024 {
+		numBytes = 100 * 1024
+	}
+
+	// Wait for the delay duration
+	select {
+	case <-r.Context().Done():
+		w.WriteHeader(499) // "Client Closed Request" https://httpstatuses.com/499
+		return
+	case <-time.After(delay):
+	}
+
+	// Generate random JSON
+	jsonData := generateRandomJSON(numBytes)
+
+	// Encode JSON to string
+	jsonBytes, err := json.Marshal(jsonData)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to generate JSON: %w", err))
+		return
+	}
+
+	// Adjust the final output size if needed
+	if len(jsonBytes) > numBytes {
+		jsonBytes = jsonBytes[:numBytes] // Trim to requested size
+	}
+
+	// Set headers and write response
+	w.Header().Set("Server-Timing", encodeServerTimings([]serverTiming{
+		{"initial_delay", delay, "initial delay"},
+	}))
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(jsonBytes)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonBytes)
+}
+
+// generateRandomJSON creates a JSON object of approximately the given byte size.
+func generateRandomJSON(targetSize int) map[string]interface{} {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	data := make(map[string]interface{})
+
+	for len(data) < 10 || estimatedJSONSize(data) < targetSize {
+		key := fmt.Sprintf("key%d", rng.Intn(1000))
+		switch rng.Intn(3) {
+		case 0:
+			data[key] = rng.Intn(10000) // Random number
+		case 1:
+			data[key] = fmt.Sprintf("value%d", rng.Intn(10000)) // Random string
+		case 2:
+			data[key] = []interface{}{rng.Intn(100), fmt.Sprintf("nested%d", rng.Intn(50))} // Random array
+		}
+	}
+	return data
+}
+
+// estimatedJSONSize approximates the size of a JSON object when marshaled.
+func estimatedJSONSize(data map[string]interface{}) int {
+	jsonBytes, _ := json.Marshal(data)
+	return len(jsonBytes)
 }
 
 // Drip simulates a slow HTTP server by writing data over a given duration
